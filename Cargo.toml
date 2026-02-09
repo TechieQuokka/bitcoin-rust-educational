@@ -1,0 +1,31 @@
+[package]
+name = "bit-coin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Cryptography
+sha2 = "0.10"
+ripemd = "0.1"
+secp256k1 = { version = "0.29", features = ["rand"] }
+rand = "0.8"
+
+# Encoding
+hex = "0.4"
+bs58 = "0.5"
+
+# Async runtime (for later phases)
+tokio = { version = "1.0", features = ["full"] }
+
+# Database (for later phases)
+sled = "0.34"
+
+# CLI (for later phases)
+clap = { version = "4.0", features = ["derive"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
