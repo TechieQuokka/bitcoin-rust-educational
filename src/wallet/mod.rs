@@ -1,2 +1,7 @@
 // Wallet and transaction building
-// To be implemented in Phase 5
+
+mod keystore;
+mod tx_builder;
+
+pub use keystore::{Keystore, Address, KeyPair};
+pub use tx_builder::TransactionBuilder;

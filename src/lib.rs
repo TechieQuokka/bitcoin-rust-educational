@@ -6,9 +6,12 @@ pub mod consensus;
 pub mod storage;
 pub mod network;
 pub mod wallet;
+pub mod cli;
 
 // Re-exports for convenience
 pub use core::{Block, BlockHeader, Transaction, TxInput, TxOutput, Script};
 pub use consensus::{Miner, Target, BlockValidator, ValidationError};
 pub use storage::{Storage, BlockchainDB, UtxoSet, Utxo, OutPoint};
 pub use network::{Node, Message, Peer, PeerInfo};
+pub use wallet::{Keystore, TransactionBuilder, Address};
+pub use cli::{Cli, CliHandler};

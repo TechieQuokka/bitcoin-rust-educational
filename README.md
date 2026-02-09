@@ -13,36 +13,42 @@
 - **현대적 구현**: Rust의 안전성과 성능을 활용한 모범 사례 적용
 - **단계별 구현**: Bottom-up 방식으로 기초부터 체계적 구축
 
-## 현재 상태: Phase 1 완료 ✓
+## 현재 상태: 전체 완성! ✅
 
 ### 구현된 기능
 
-- ✅ **기초 데이터 구조**
-  - Block, BlockHeader
-  - Transaction, TxInput, TxOutput
-  - Hash256 타입
+**Phase 1 - 기초 데이터 구조** ✅
+- Block, BlockHeader, Transaction
+- SHA256 double hash, Merkle tree
+- VarInt 직렬화, 제네시스 블록
 
-- ✅ **해싱 및 암호화**
-  - SHA256 double hash
-  - Merkle root 계산
-  - RIPEMD160 (address generation 준비)
+**Phase 2 - 검증 & 암호화** ✅
+- Proof of Work (난이도 고정)
+- P2PKH Bitcoin Script
+- ECDSA 서명 검증 (secp256k1)
+- 블록/트랜잭션 검증
 
-- ✅ **직렬화**
-  - VarInt 인코딩/디코딩
-  - 블록 및 트랜잭션 직렬화/역직렬화
+**Phase 3 - 저장소** ✅
+- Blockchain DB (sled)
+- UTXO set 관리
+- 높이 인덱싱, 잔액 계산
 
-- ✅ **제네시스 블록**
-  - 2009년 Bitcoin 제네시스 블록 재현
-  - Coinbase 트랜잭션 지원
+**Phase 4 - P2P 네트워크** ✅
+- 프로토콜 메시지 (Version, Ping, Inv 등)
+- Peer 연결 관리 (tokio)
+- Network node 구조
+
+**Phase 5 - 지갑 & CLI** ✅
+- 키 관리 (Keystore)
+- 트랜잭션 빌더
+- 완전한 CLI 도구
 
 ### 테스트 결과
 
 ```
-19개 단위 테스트 모두 통과
-- Block 직렬화/해시 계산
-- Transaction 직렬화/TXID 계산
-- Merkle root 계산
-- VarInt 인코딩/디코딩
+✅ 56개 단위 테스트 통과
+✅ 전체 통합 테스트 통과
+✅ CLI 명령어 작동 확인
 ```
 
 ## 빌드 및 실행
@@ -55,7 +61,7 @@
 ### 빌드
 
 ```bash
-cargo build
+cargo build --release
 ```
 
 ### 테스트 실행
@@ -64,10 +70,49 @@ cargo build
 cargo test
 ```
 
-### 예제 실행
+### CLI 사용
+
+#### 블록체인 초기화
+```bash
+./target/release/bit-coin init
+```
+
+#### 블록체인 정보 조회
+```bash
+./target/release/bit-coin info
+```
+
+#### 지갑 명령어
+```bash
+# 새 주소 생성
+./target/release/bit-coin wallet new-address
+
+# 주소 목록 조회
+./target/release/bit-coin wallet list
+
+# 잔액 조회
+./target/release/bit-coin wallet balance
+
+# 송금
+./target/release/bit-coin wallet send <주소> <금액> --fee <수수료>
+```
+
+#### 블록 명령어
+```bash
+# 블록 조회 (높이 또는 해시)
+./target/release/bit-coin block get 0
+
+# 체인 높이 조회
+./target/release/bit-coin block height
+
+# 최신 블록 조회
+./target/release/bit-coin block best-block
+```
+
+### 데모 실행
 
 ```bash
-cargo run
+cargo run --example demo
 ```
 
 ## 프로젝트 구조
@@ -75,28 +120,51 @@ cargo run
 ```
 src/
 ├── lib.rs              # 라이브러리 루트
-├── main.rs             # 예제 프로그램
+├── main.rs             # CLI 진입점
+├── cli.rs              # CLI 명령어 ✓
 ├── core/               # 핵심 데이터 구조 ✓
 │   ├── types.rs        # Hash256 등 기본 타입
 │   ├── hash.rs         # 해싱 유틸리티
 │   ├── serialize.rs    # 직렬화 유틸리티
+│   ├── script.rs       # Bitcoin Script (P2PKH)
 │   ├── transaction.rs  # 트랜잭션 구조
 │   └── block.rs        # 블록 구조
-├── consensus/          # 합의 & 검증 (Phase 2)
-├── storage/            # 저장소 (Phase 3)
-├── network/            # P2P 네트워크 (Phase 4)
-└── wallet/             # 지갑 (Phase 5)
+├── consensus/          # 합의 & 검증 ✓
+│   ├── pow.rs          # Proof of Work
+│   └── validation.rs   # 블록/트랜잭션 검증
+├── storage/            # 저장소 ✓
+│   ├── blockchain_db.rs # 블록체인 DB
+│   └── utxo_set.rs     # UTXO 관리
+├── network/            # P2P 네트워크 ✓
+│   ├── message.rs      # 프로토콜 메시지
+│   ├── peer.rs         # Peer 연결
+│   └── node.rs         # Network node
+└── wallet/             # 지갑 ✓
+    ├── keystore.rs     # 키 관리
+    └── tx_builder.rs   # 트랜잭션 빌더
+
+examples/
+├── demo.rs             # 전체 기능 데모
+└── mine_genesis.rs     # 제네시스 블록 채굴
 ```
 
-## 다음 단계: Phase 2 - 검증 로직
+## 완성된 기능
 
-### 구현 예정
+### ✅ 모든 Phase 완료
 
-- [ ] Proof of Work (난이도 고정)
-- [ ] Bitcoin Script (P2PKH만)
-- [ ] 트랜잭션 검증
-- [ ] 블록 검증
-- [ ] 채굴 기능 (테스트용)
+- ✅ Phase 1: 기초 데이터 구조
+- ✅ Phase 2: 검증 & 암호화
+- ✅ Phase 3: 저장소
+- ✅ Phase 4: P2P 네트워크
+- ✅ Phase 5: 지갑 & CLI
+
+### 추가 개선 가능 영역
+
+- [ ] 실제 P2P 네트워크 연결
+- [ ] 채굴 풀 지원
+- [ ] HD Wallet (BIP32/BIP44)
+- [ ] GUI 인터페이스
+- [ ] REST API 서버
 
 ## 기술 스택
 
