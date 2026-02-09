@@ -1,7 +1,6 @@
 // Network protocol messages
 
 use crate::core::{Block, Transaction, Hash256, Serializable};
-use std::io::{Read, Write};
 
 /// Network message types
 #[derive(Debug, Clone, PartialEq, Eq)]

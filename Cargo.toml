@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # Cryptography
 sha2 = "0.10"
@@ -17,14 +18,14 @@ rand = "0.8"
 hex = "0.4"
 bs58 = "0.5"
 
-# Async runtime (for later phases)
-tokio = { version = "1.0", features = ["full"] }
+# Async runtime
+tokio = { version = "1.49", features = ["full"] }
 
-# Database (for later phases)
+# Database
 sled = "0.34"
 
-# CLI (for later phases)
-clap = { version = "4.0", features = ["derive"] }
+# CLI
+clap = { version = "4.5", features = ["derive"] }
 
 # Logging
 log = "0.4"

@@ -43,20 +43,44 @@ impl BlockHeader {
 
     /// Calculate the hash of this block header
     pub fn hash(&self) -> Hash256 {
-        let serialized = self.serialize();
+        let serialized = self.serialize_to_array();
         hash256(&serialized)
+    }
+
+    /// Serialize to fixed-size array (optimized for mining - no allocation)
+    pub fn serialize_to_array(&self) -> [u8; 80] {
+        let mut buf = [0u8; 80];
+        let mut offset = 0;
+
+        // Version (4 bytes)
+        buf[offset..offset + 4].copy_from_slice(&self.version.to_le_bytes());
+        offset += 4;
+
+        // Previous block hash (32 bytes)
+        buf[offset..offset + 32].copy_from_slice(self.prev_block_hash.as_bytes());
+        offset += 32;
+
+        // Merkle root (32 bytes)
+        buf[offset..offset + 32].copy_from_slice(self.merkle_root.as_bytes());
+        offset += 32;
+
+        // Timestamp (4 bytes)
+        buf[offset..offset + 4].copy_from_slice(&self.timestamp.to_le_bytes());
+        offset += 4;
+
+        // Bits (4 bytes)
+        buf[offset..offset + 4].copy_from_slice(&self.bits.to_le_bytes());
+        offset += 4;
+
+        // Nonce (4 bytes)
+        buf[offset..offset + 4].copy_from_slice(&self.nonce.to_le_bytes());
+
+        buf
     }
 
     /// Serialize the block header (always 80 bytes)
     pub fn serialize(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(80);
-        buf.write_all(&self.version.to_le_bytes()).unwrap();
-        buf.write_all(self.prev_block_hash.as_bytes()).unwrap();
-        buf.write_all(self.merkle_root.as_bytes()).unwrap();
-        buf.write_all(&self.timestamp.to_le_bytes()).unwrap();
-        buf.write_all(&self.bits.to_le_bytes()).unwrap();
-        buf.write_all(&self.nonce.to_le_bytes()).unwrap();
-        buf
+        self.serialize_to_array().to_vec()
     }
 
     /// Deserialize a block header
@@ -228,20 +252,11 @@ impl Serializable for Block {
         // Transaction count
         let tx_count = read_varint(&mut cursor).map_err(|e| e.to_string())? as usize;
 
-        // Deserialize transactions
+        // Deserialize transactions (optimized: no copying, cursor auto-advances)
         let mut transactions = Vec::with_capacity(tx_count);
         for _ in 0..tx_count {
-            // Read remaining bytes for transaction
-            let mut remaining = Vec::new();
-            cursor.read_to_end(&mut remaining).map_err(|e| e.to_string())?;
-
-            let tx = Transaction::deserialize(&remaining)?;
-            let consumed = tx.serialize().len();
-            transactions.push(tx);
-
-            // Reset cursor position for next transaction
-            let new_pos = cursor.position() + consumed as u64;
-            cursor.set_position(new_pos);
+            // Use from_reader for zero-copy deserialization
+            transactions.push(Transaction::from_reader(&mut cursor)?);
         }
 
         Ok(Self {

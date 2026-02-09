@@ -1,7 +1,7 @@
 // Network node - manages peer connections
 
 use crate::network::{Peer, PeerInfo, Message, InvMessage, InvType};
-use crate::core::{Block, Transaction, Hash256};
+use crate::core::{Block, Transaction};
 use crate::storage::Storage;
 use tokio::net::TcpListener;
 use std::net::SocketAddr;
@@ -105,7 +105,7 @@ impl Node {
                             // Respond with pong
                             peer.send_message(&Message::Pong(nonce)).await?;
                         }
-                        Message::GetBlocks { start, stop } => {
+                        Message::GetBlocks { start: _, stop: _ } => {
                             // Send blocks (simplified)
                             log::debug!("GetBlocks request from {}", addr);
                         }
@@ -134,7 +134,7 @@ impl Node {
     /// Broadcast a block to all peers
     pub async fn broadcast_block(&self, block: &Block) -> Result<(), String> {
         let inv = InvMessage::new(InvType::Block, vec![block.hash()]);
-        let message = Message::Inv(inv);
+        let _message = Message::Inv(inv);
 
         let peers = self.peers.read().await;
         log::info!("Broadcasting block to {} peers", peers.len());
@@ -147,7 +147,7 @@ impl Node {
     /// Broadcast a transaction to all peers
     pub async fn broadcast_transaction(&self, tx: &Transaction) -> Result<(), String> {
         let inv = InvMessage::new(InvType::Tx, vec![tx.txid()]);
-        let message = Message::Inv(inv);
+        let _message = Message::Inv(inv);
 
         let peers = self.peers.read().await;
         log::info!("Broadcasting transaction to {} peers", peers.len());

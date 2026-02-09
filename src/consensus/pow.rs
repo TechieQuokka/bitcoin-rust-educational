@@ -81,13 +81,18 @@ impl Target {
 pub struct Miner {
     /// Fixed difficulty target
     pub target: Target,
+    /// Cached target hash for fast comparison
+    target_hash: Hash256,
 }
 
 impl Miner {
     /// Create a new miner with fixed difficulty
     pub fn new(bits: u32) -> Self {
+        let target = Target::from_bits(bits);
+        let target_hash = target.to_hash256();
         Self {
-            target: Target::from_bits(bits),
+            target,
+            target_hash,
         }
     }
 
@@ -103,7 +108,8 @@ impl Miner {
             let hash = header.hash();
             attempts += 1;
 
-            if self.target.is_valid_hash(&hash) {
+            // Fast comparison using cached target hash
+            if self.is_valid_hash_fast(&hash) {
                 let elapsed = start_time.elapsed();
                 return MiningResult {
                     success: true,
@@ -132,6 +138,20 @@ impl Miner {
             attempts,
             duration: start_time.elapsed(),
         }
+    }
+
+    /// Fast hash validation using cached target (no conversion overhead)
+    #[inline]
+    fn is_valid_hash_fast(&self, hash: &Hash256) -> bool {
+        // Compare byte by byte (big-endian comparison)
+        for i in 0..32 {
+            if hash.as_bytes()[i] < self.target_hash.as_bytes()[i] {
+                return true;
+            } else if hash.as_bytes()[i] > self.target_hash.as_bytes()[i] {
+                return false;
+            }
+        }
+        false
     }
 
     /// Verify that a block header satisfies PoW

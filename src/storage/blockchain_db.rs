@@ -28,14 +28,10 @@ impl BlockchainDB {
         let hash = block.hash();
         let serialized = block.serialize();
 
-        // Store block by hash
+        // Store block by hash (flush removed for performance)
         self.db
             .insert(Self::block_key(&hash), serialized.as_slice())
             .map_err(|e| format!("Failed to store block: {}", e))?;
-
-        self.db
-            .flush()
-            .map_err(|e| format!("Failed to flush: {}", e))?;
 
         Ok(())
     }
@@ -60,10 +56,6 @@ impl BlockchainDB {
         self.db
             .insert(key, hash.as_bytes().as_slice())
             .map_err(|e| format!("Failed to store height: {}", e))?;
-
-        self.db
-            .flush()
-            .map_err(|e| format!("Failed to flush: {}", e))?;
 
         Ok(())
     }
@@ -99,10 +91,6 @@ impl BlockchainDB {
             .insert(b"tip", hash.as_bytes().as_slice())
             .map_err(|e| format!("Failed to store tip: {}", e))?;
 
-        self.db
-            .flush()
-            .map_err(|e| format!("Failed to flush: {}", e))?;
-
         Ok(())
     }
 
@@ -127,10 +115,14 @@ impl BlockchainDB {
             .insert(b"height", &height.to_le_bytes())
             .map_err(|e| format!("Failed to store height: {}", e))?;
 
+        Ok(())
+    }
+
+    /// Manually flush database (call after batch operations)
+    pub fn flush(&self) -> Result<(), String> {
         self.db
             .flush()
             .map_err(|e| format!("Failed to flush: {}", e))?;
-
         Ok(())
     }
 

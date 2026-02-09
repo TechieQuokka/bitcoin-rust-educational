@@ -4,9 +4,12 @@ use crate::core::{hash160, Script};
 use secp256k1::{Secp256k1, SecretKey, PublicKey};
 use rand::rngs::OsRng;
 use std::collections::HashMap;
+use std::path::Path;
+use std::fs;
+use serde::{Serialize, Deserialize};
 
 /// Bitcoin address
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Address(pub String);
 
 impl Address {
@@ -42,6 +45,13 @@ impl std::fmt::Display for Address {
     }
 }
 
+/// Serializable key pair (for storage)
+#[derive(Serialize, Deserialize)]
+struct SerializableKeyPair {
+    secret_key_bytes: [u8; 32],
+    address: Address,
+}
+
 /// Key pair
 #[derive(Clone)]
 pub struct KeyPair {
@@ -67,6 +77,32 @@ impl KeyPair {
             secret_key,
             public_key,
             address,
+        }
+    }
+
+    /// Create from secret key bytes
+    fn from_secret_bytes(bytes: &[u8; 32]) -> Result<Self, String> {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(bytes)
+            .map_err(|e| format!("Invalid secret key: {}", e))?;
+        let public_key = secret_key.public_key(&secp);
+
+        let pubkey_bytes = public_key.serialize();
+        let pubkey_hash = hash160(&pubkey_bytes);
+        let address = Address::from_pubkey_hash(&pubkey_hash);
+
+        Ok(Self {
+            secret_key,
+            public_key,
+            address,
+        })
+    }
+
+    /// Convert to serializable format
+    fn to_serializable(&self) -> SerializableKeyPair {
+        SerializableKeyPair {
+            secret_key_bytes: self.secret_key.secret_bytes(),
+            address: self.address.clone(),
         }
     }
 
@@ -147,6 +183,61 @@ impl Keystore {
     /// Count addresses
     pub fn count(&self) -> usize {
         self.keys.len()
+    }
+
+    /// Save keystore to file
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
+        // Convert to serializable format
+        let serializable_keys: HashMap<Address, SerializableKeyPair> = self.keys
+            .iter()
+            .map(|(addr, kp)| (addr.clone(), kp.to_serializable()))
+            .collect();
+
+        #[derive(Serialize)]
+        struct SerializableKeystore {
+            keys: HashMap<Address, SerializableKeyPair>,
+            default_address: Option<Address>,
+        }
+
+        let data = SerializableKeystore {
+            keys: serializable_keys,
+            default_address: self.default_address.clone(),
+        };
+
+        let json = serde_json::to_string_pretty(&data)
+            .map_err(|e| format!("Failed to serialize keystore: {}", e))?;
+
+        fs::write(path, json)
+            .map_err(|e| format!("Failed to write keystore file: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Load keystore from file
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
+        let json = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read keystore file: {}", e))?;
+
+        #[derive(Deserialize)]
+        struct SerializableKeystore {
+            keys: HashMap<Address, SerializableKeyPair>,
+            default_address: Option<Address>,
+        }
+
+        let data: SerializableKeystore = serde_json::from_str(&json)
+            .map_err(|e| format!("Failed to deserialize keystore: {}", e))?;
+
+        // Convert back to KeyPair
+        let mut keys = HashMap::new();
+        for (addr, serializable_kp) in data.keys {
+            let kp = KeyPair::from_secret_bytes(&serializable_kp.secret_key_bytes)?;
+            keys.insert(addr, kp);
+        }
+
+        Ok(Self {
+            keys,
+            default_address: data.default_address,
+        })
     }
 }
 

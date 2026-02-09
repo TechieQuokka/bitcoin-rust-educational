@@ -74,15 +74,34 @@ pub enum BlockCommands {
 pub struct CliHandler {
     storage: Storage,
     keystore: Keystore,
+    keystore_path: String,
 }
 
 impl CliHandler {
     /// Create a new CLI handler
     pub fn new(data_dir: &str) -> Result<Self, String> {
         let storage = Storage::new(data_dir)?;
-        let keystore = Keystore::new();
 
-        Ok(Self { storage, keystore })
+        // Load or create keystore
+        let keystore_path = format!("{}/keystore.json", data_dir);
+        let keystore = if std::path::Path::new(&keystore_path).exists() {
+            log::info!("Loading keystore from {}", keystore_path);
+            Keystore::load(&keystore_path)?
+        } else {
+            log::info!("Creating new keystore");
+            Keystore::new()
+        };
+
+        Ok(Self {
+            storage,
+            keystore,
+            keystore_path,
+        })
+    }
+
+    /// Save keystore to disk
+    fn save_keystore(&self) -> Result<(), String> {
+        self.keystore.save(&self.keystore_path)
     }
 
     /// Handle CLI command
@@ -145,6 +164,7 @@ impl CliHandler {
             WalletCommands::NewAddress => {
                 let addr = self.keystore.new_address();
                 println!("New address: {}", addr);
+                self.save_keystore()?;
                 Ok(())
             }
             WalletCommands::List => {

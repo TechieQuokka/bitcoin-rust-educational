@@ -103,7 +103,7 @@ impl<'a> TransactionBuilder<'a> {
         let secp = Secp256k1::new();
         let tx_hash = tx.txid();
 
-        for (i, (_, utxo)) in utxos.iter().enumerate() {
+        for (i, (_, _utxo)) in utxos.iter().enumerate() {
             // Create message from tx hash
             let message = Message::from_digest_slice(tx_hash.as_bytes())
                 .map_err(|e| format!("Invalid message: {}", e))?;

@@ -129,10 +129,6 @@ impl UtxoSet {
             .insert(key, value)
             .map_err(|e| format!("Failed to add UTXO: {}", e))?;
 
-        self.db
-            .flush()
-            .map_err(|e| format!("Failed to flush: {}", e))?;
-
         Ok(())
     }
 
@@ -158,10 +154,6 @@ impl UtxoSet {
             .remove(&key)
             .map_err(|e| format!("Failed to remove UTXO: {}", e))?
             .is_some();
-
-        self.db
-            .flush()
-            .map_err(|e| format!("Failed to flush: {}", e))?;
 
         Ok(existed)
     }
@@ -191,15 +183,21 @@ impl UtxoSet {
     }
 
     /// Get balance for a script pubkey
+    /// NOTE: This performs a full scan. For better performance with many UTXOs,
+    /// consider maintaining a separate address->balance index.
     pub fn get_balance(&self, script_pubkey: &[u8]) -> Result<u64, String> {
         let mut balance = 0u64;
 
         for item in self.db.iter() {
             let (_, value) = item.map_err(|e| format!("Iterator error: {}", e))?;
-            let utxo = Utxo::from_bytes(&value)?;
 
-            if utxo.output.script_pubkey == script_pubkey {
-                balance += utxo.output.value;
+            // Early exit optimization: check script length before full deserialization
+            if value.len() >= 13 {
+                let utxo = Utxo::from_bytes(&value)?;
+
+                if utxo.output.script_pubkey == script_pubkey {
+                    balance += utxo.output.value;
+                }
             }
         }
 
@@ -207,17 +205,22 @@ impl UtxoSet {
     }
 
     /// Get all UTXOs for a script pubkey
+    /// NOTE: This performs a full scan. For better performance with many UTXOs,
+    /// consider maintaining a separate script->outpoints index.
     pub fn get_utxos_for_script(&self, script_pubkey: &[u8]) -> Result<Vec<(OutPoint, Utxo)>, String> {
         let mut utxos = Vec::new();
 
         for item in self.db.iter() {
             let (key, value) = item.map_err(|e| format!("Iterator error: {}", e))?;
 
-            let utxo = Utxo::from_bytes(&value)?;
+            // Early exit optimization: check minimum size before deserialization
+            if value.len() >= 13 {
+                let utxo = Utxo::from_bytes(&value)?;
 
-            if utxo.output.script_pubkey == script_pubkey {
-                let outpoint = OutPoint::from_bytes(&key)?;
-                utxos.push((outpoint, utxo));
+                if utxo.output.script_pubkey == script_pubkey {
+                    let outpoint = OutPoint::from_bytes(&key)?;
+                    utxos.push((outpoint, utxo));
+                }
             }
         }
 
@@ -230,6 +233,14 @@ impl UtxoSet {
             .len()
             .try_into()
             .map_err(|e| format!("Failed to get UTXO count: {}", e))
+    }
+
+    /// Manually flush database (call after batch operations)
+    pub fn flush(&self) -> Result<(), String> {
+        self.db
+            .flush()
+            .map_err(|e| format!("Failed to flush: {}", e))?;
+        Ok(())
     }
 }
 

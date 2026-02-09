@@ -183,6 +183,46 @@ impl Transaction {
     }
 }
 
+impl Transaction {
+    /// Deserialize from a reader (optimized for streaming)
+    pub fn from_reader(reader: &mut dyn Read) -> Result<Self, String> {
+        // Version
+        let mut version_bytes = [0u8; 4];
+        reader.read_exact(&mut version_bytes).map_err(|e| e.to_string())?;
+        let version = u32::from_le_bytes(version_bytes);
+
+        // Input count
+        let input_count = read_varint(reader).map_err(|e| e.to_string())? as usize;
+
+        // Inputs
+        let mut inputs = Vec::with_capacity(input_count);
+        for _ in 0..input_count {
+            inputs.push(TxInput::deserialize(reader)?);
+        }
+
+        // Output count
+        let output_count = read_varint(reader).map_err(|e| e.to_string())? as usize;
+
+        // Outputs
+        let mut outputs = Vec::with_capacity(output_count);
+        for _ in 0..output_count {
+            outputs.push(TxOutput::deserialize(reader)?);
+        }
+
+        // Lock time
+        let mut lock_time_bytes = [0u8; 4];
+        reader.read_exact(&mut lock_time_bytes).map_err(|e| e.to_string())?;
+        let lock_time = u32::from_le_bytes(lock_time_bytes);
+
+        Ok(Self {
+            version,
+            inputs,
+            outputs,
+            lock_time,
+        })
+    }
+}
+
 impl Serializable for Transaction {
     fn serialize(&self) -> Vec<u8> {
         let mut buf = Vec::new();
@@ -214,41 +254,7 @@ impl Serializable for Transaction {
 
     fn deserialize(data: &[u8]) -> Result<Self, String> {
         let mut cursor = Cursor::new(data);
-
-        // Version
-        let mut version_bytes = [0u8; 4];
-        cursor.read_exact(&mut version_bytes).map_err(|e| e.to_string())?;
-        let version = u32::from_le_bytes(version_bytes);
-
-        // Input count
-        let input_count = read_varint(&mut cursor).map_err(|e| e.to_string())? as usize;
-
-        // Inputs
-        let mut inputs = Vec::with_capacity(input_count);
-        for _ in 0..input_count {
-            inputs.push(TxInput::deserialize(&mut cursor)?);
-        }
-
-        // Output count
-        let output_count = read_varint(&mut cursor).map_err(|e| e.to_string())? as usize;
-
-        // Outputs
-        let mut outputs = Vec::with_capacity(output_count);
-        for _ in 0..output_count {
-            outputs.push(TxOutput::deserialize(&mut cursor)?);
-        }
-
-        // Lock time
-        let mut lock_time_bytes = [0u8; 4];
-        cursor.read_exact(&mut lock_time_bytes).map_err(|e| e.to_string())?;
-        let lock_time = u32::from_le_bytes(lock_time_bytes);
-
-        Ok(Self {
-            version,
-            inputs,
-            outputs,
-            lock_time,
-        })
+        Self::from_reader(&mut cursor)
     }
 }
 
