@@ -30,3 +30,8 @@ clap = { version = "4.5", features = ["derive"] }
 # Logging
 log = "0.4"
 env_logger = "0.11"
+
+# GPU mining (wgpu compute shaders)
+wgpu = "0.20"
+pollster = "0.3"
+bytemuck = { version = "1", features = ["derive"] }

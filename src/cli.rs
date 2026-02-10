@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use crate::{Storage, Block};
 use crate::core::{BlockHeader, Transaction, TxOutput};
 use crate::consensus::pow::Miner;
+use crate::consensus::gpu_pow::GpuMiner;
 use crate::storage::{OutPoint, Utxo};
 use crate::wallet::{Keystore, TransactionBuilder};
 
@@ -32,6 +33,9 @@ pub enum Commands {
         /// Address to receive the block reward (uses default wallet address if not specified)
         #[arg(short, long)]
         address: Option<String>,
+        /// Use GPU (wgpu compute shader) for mining; falls back to CPU if no GPU is found
+        #[arg(long, default_value = "false")]
+        gpu: bool,
     },
 
     /// Block commands
@@ -119,7 +123,7 @@ impl CliHandler {
         match cli.command {
             Commands::Init => self.init(),
             Commands::Info => self.info(),
-            Commands::Mine { address } => self.mine(address),
+            Commands::Mine { address, gpu } => self.mine(address, gpu),
             Commands::Wallet(cmd) => self.handle_wallet(cmd),
             Commands::Block(cmd) => self.handle_block(cmd),
         }
@@ -170,7 +174,7 @@ impl CliHandler {
     }
 
     /// Mine a new block
-    fn mine(&mut self, address: Option<String>) -> Result<(), String> {
+    fn mine(&mut self, address: Option<String>, use_gpu: bool) -> Result<(), String> {
         // Resolve the reward address
         let reward_addr = match address {
             Some(a) => crate::wallet::Address(a),
@@ -213,10 +217,20 @@ impl CliHandler {
         let bits: u32 = 0x20ffffff;
         let mut header = BlockHeader::new(1, prev_hash, merkle_root, timestamp, bits, 0);
 
-        // Run Proof-of-Work
-        println!("Mining block {}...", new_height);
-        let miner = Miner::new(bits);
-        let result = miner.mine(&mut header);
+        // Run Proof-of-Work (CPU or GPU)
+        if use_gpu {
+            println!("Mining block {} on GPU...", new_height);
+        } else {
+            println!("Mining block {} on CPU...", new_height);
+        }
+
+        let result = if use_gpu {
+            let gpu_miner = GpuMiner::new(bits);
+            gpu_miner.mine(&mut header)
+        } else {
+            let cpu_miner = Miner::new(bits);
+            cpu_miner.mine(&mut header)
+        };
 
         if !result.success {
             return Err("Mining failed: could not find valid nonce".to_string());
