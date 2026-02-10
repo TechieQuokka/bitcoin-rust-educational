@@ -64,30 +64,37 @@ struct Result {
 @group(0) @binding(1) var<storage, read_write> result : Result;
 
 // ── SHA256 constants ──────────────────────────────────────────────────────────
+// Note: declared as functions returning var locals so naga allows dynamic indexing.
 
-const H0 : array<u32, 8> = array<u32, 8>(
-    0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
-    0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
-);
+fn sha256_h0() -> array<u32, 8> {
+    var h : array<u32, 8> = array<u32, 8>(
+        0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+        0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
+    );
+    return h;
+}
 
-const K : array<u32, 64> = array<u32, 64>(
-    0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
-    0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
-    0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
-    0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
-    0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
-    0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
-    0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
-    0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
-    0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
-    0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
-    0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
-    0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
-    0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
-    0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
-    0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
-    0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u,
-);
+fn sha256_k() -> array<u32, 64> {
+    var k : array<u32, 64> = array<u32, 64>(
+        0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
+        0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
+        0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
+        0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
+        0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
+        0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+        0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
+        0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
+        0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
+        0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+        0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
+        0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+        0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
+        0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+        0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+        0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u,
+    );
+    return k;
+}
 
 // ── SHA256 helpers ────────────────────────────────────────────────────────────
 
@@ -106,7 +113,12 @@ fn swap(x: u32) -> u32 {
 // One SHA256 compression round.
 // Accepts the running hash state (8 words) and one 16-word message block.
 // Returns the updated state.
-fn compress(state: array<u32, 8>, blk: array<u32, 16>) -> array<u32, 8> {
+fn compress(state_in: array<u32, 8>, blk_in: array<u32, 16>) -> array<u32, 8> {
+    // var locals allow dynamic indexing in naga
+    var state = state_in;
+    var blk   = blk_in;
+    var K     = sha256_k();
+
     var w : array<u32, 64>;
     for (var i = 0u; i < 16u; i++) { w[i] = blk[i]; }
     for (var i = 16u; i < 64u; i++) {
@@ -153,10 +165,32 @@ fn compress(state: array<u32, 8>, blk: array<u32, 16>) -> array<u32, 8> {
 fn sha256d(nonce_le: u32) -> array<u32, 8> {
 
     // ── Pass 1, Block 1: header bytes 0-63 (16 LE u32 → 16 BE u32) ──────────
-    var blk1 : array<u32, 16>;
-    for (var i = 0u; i < 16u; i++) { blk1[i] = swap(params.header_prefix[i]); }
+    // Copy storage buffer fields into var locals for dynamic indexing
+    var prefix : array<u32, 19>;
+    prefix[ 0] = params.header_prefix[ 0];
+    prefix[ 1] = params.header_prefix[ 1];
+    prefix[ 2] = params.header_prefix[ 2];
+    prefix[ 3] = params.header_prefix[ 3];
+    prefix[ 4] = params.header_prefix[ 4];
+    prefix[ 5] = params.header_prefix[ 5];
+    prefix[ 6] = params.header_prefix[ 6];
+    prefix[ 7] = params.header_prefix[ 7];
+    prefix[ 8] = params.header_prefix[ 8];
+    prefix[ 9] = params.header_prefix[ 9];
+    prefix[10] = params.header_prefix[10];
+    prefix[11] = params.header_prefix[11];
+    prefix[12] = params.header_prefix[12];
+    prefix[13] = params.header_prefix[13];
+    prefix[14] = params.header_prefix[14];
+    prefix[15] = params.header_prefix[15];
+    prefix[16] = params.header_prefix[16];
+    prefix[17] = params.header_prefix[17];
+    prefix[18] = params.header_prefix[18];
 
-    var st = H0;
+    var blk1 : array<u32, 16>;
+    for (var i = 0u; i < 16u; i++) { blk1[i] = swap(prefix[i]); }
+
+    var st = sha256_h0();
     st = compress(st, blk1);
 
     // ── Pass 1, Block 2: header bytes 64-79 + SHA256 padding ─────────────────
@@ -166,9 +200,9 @@ fn sha256d(nonce_le: u32) -> array<u32, 8> {
     // bytes 76-79: nonce_le
     // padding : 0x80 byte then zeros, then 64-bit big-endian bit-length = 640
     var blk2 : array<u32, 16>;
-    blk2[0]  = swap(params.header_prefix[16]);
-    blk2[1]  = swap(params.header_prefix[17]);
-    blk2[2]  = swap(params.header_prefix[18]);
+    blk2[0]  = swap(prefix[16]);
+    blk2[1]  = swap(prefix[17]);
+    blk2[2]  = swap(prefix[18]);
     blk2[3]  = swap(nonce_le);
     blk2[4]  = 0x80000000u;  // 0x80 padding byte
     blk2[5]  = 0u; blk2[6]  = 0u; blk2[7]  = 0u;
@@ -177,7 +211,7 @@ fn sha256d(nonce_le: u32) -> array<u32, 8> {
     blk2[14] = 0u;     // high 32 bits of bit-length (640 < 2^32, so 0)
     blk2[15] = 640u;   // low  32 bits: 80 bytes × 8 = 640
 
-    let hash1 = compress(st, blk2);
+    var hash1 = compress(st, blk2);
 
     // ── Pass 2: SHA256 of the 32-byte intermediate hash ───────────────────────
     // The 8 u32 words from hash1 are already big-endian SHA256 output.
@@ -190,7 +224,7 @@ fn sha256d(nonce_le: u32) -> array<u32, 8> {
     blk3[14] = 0u;     // high 32 bits of 256
     blk3[15] = 256u;   // low  32 bits: 32 bytes × 8 = 256
 
-    return compress(H0, blk3);
+    return compress(sha256_h0(), blk3);
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -198,13 +232,24 @@ fn sha256d(nonce_le: u32) -> array<u32, 8> {
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     let nonce = params.start_nonce + gid.x;
-    let hash  = sha256d(nonce);
+    var hash  = sha256d(nonce);
 
-    // Check hash < target  (both in big-endian u32 order)
+    // Copy storage target into a var local for dynamic indexing
+    var tgt : array<u32, 8>;
+    tgt[0] = params.target_be[0];
+    tgt[1] = params.target_be[1];
+    tgt[2] = params.target_be[2];
+    tgt[3] = params.target_be[3];
+    tgt[4] = params.target_be[4];
+    tgt[5] = params.target_be[5];
+    tgt[6] = params.target_be[6];
+    tgt[7] = params.target_be[7];
+
+    // Check hash < tgt  (both in big-endian u32 order)
     var below = false;
     for (var i = 0u; i < 8u; i++) {
-        if hash[i] < params.target_be[i] { below = true; break; }
-        if hash[i] > params.target_be[i] {                break; }
+        if hash[i] < tgt[i] { below = true; break; }
+        if hash[i] > tgt[i] {               break; }
     }
 
     if below && result.found == 0u {

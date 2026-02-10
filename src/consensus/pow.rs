@@ -31,7 +31,7 @@ impl Target {
             target[31] = ((value >> 16) & 0xff) as u8;
         } else {
             let shift = exponent - 3;
-            if shift < 29 {
+            if shift <= 29 {
                 let offset = 32 - shift - 3;
                 target[offset] = (coefficient & 0xff) as u8;
                 target[offset + 1] = ((coefficient >> 8) & 0xff) as u8;
