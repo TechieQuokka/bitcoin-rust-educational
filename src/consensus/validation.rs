@@ -26,6 +26,10 @@ pub enum ValidationError {
     InvalidTimestamp,
     /// Block version not supported
     InvalidVersion,
+    /// Coinbase transaction must have exactly one input
+    InvalidCoinbaseInputCount,
+    /// Total output value exceeds the maximum allowed supply
+    OutputValueExceedsMax,
 }
 
 impl std::fmt::Display for ValidationError {
@@ -41,6 +45,8 @@ impl std::fmt::Display for ValidationError {
             ValidationError::CoinbaseNotFirst => write!(f, "Coinbase not in first position"),
             ValidationError::InvalidTimestamp => write!(f, "Invalid timestamp"),
             ValidationError::InvalidVersion => write!(f, "Invalid version"),
+            ValidationError::InvalidCoinbaseInputCount => write!(f, "Coinbase must have exactly one input"),
+            ValidationError::OutputValueExceedsMax => write!(f, "Total output value exceeds maximum supply"),
         }
     }
 }
@@ -146,7 +152,7 @@ impl BlockValidator {
         if tx.is_coinbase() {
             // Coinbase must have exactly 1 input
             if tx.inputs.len() != 1 {
-                return Err(ValidationError::EmptyTransaction);
+                return Err(ValidationError::InvalidCoinbaseInputCount);
             }
             // Coinbase validation is simple - just structure check
             return Ok(());
@@ -210,7 +216,7 @@ impl TransactionValidator {
         const MAX_MONEY: u64 = 21_000_000 * 100_000_000; // 21M BTC in satoshis
 
         if total_output > MAX_MONEY {
-            return Err(ValidationError::EmptyTransaction);
+            return Err(ValidationError::OutputValueExceedsMax);
         }
 
         Ok(())

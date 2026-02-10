@@ -8,6 +8,7 @@ Bitcoin Educational Implementation의 CLI 사용 가이드입니다.
 - [커맨드 레퍼런스](#커맨드-레퍼런스)
   - [init](#init)
   - [info](#info)
+  - [mine](#mine)
   - [wallet new-address](#wallet-new-address)
   - [wallet list](#wallet-list)
   - [wallet balance](#wallet-balance)
@@ -17,8 +18,9 @@ Bitcoin Educational Implementation의 CLI 사용 가이드입니다.
   - [block best-block](#block-best-block)
 - [사용 플로우](#사용-플로우)
   - [Flow 1: 기본 셋업](#flow-1-기본-셋업)
-  - [Flow 2: 코인 전송](#flow-2-코인-전송)
-  - [Flow 3: 블록체인 탐색](#flow-3-블록체인-탐색)
+  - [Flow 2: 채굴 및 잔액 확인](#flow-2-채굴-및-잔액-확인)
+  - [Flow 3: 코인 전송](#flow-3-코인-전송)
+  - [Flow 4: 블록체인 탐색](#flow-4-블록체인-탐색)
 - [데이터 저장 구조](#데이터-저장-구조)
 - [에러 케이스](#에러-케이스)
 - [내부 동작 개요](#내부-동작-개요)
@@ -96,6 +98,51 @@ Blockchain Info:
 | Height | 저장된 블록 수 (init 직후: 1) |
 | Best block | 체인 팁 블록의 SHA256d 해시 (hex) |
 | UTXO count | 현재 미사용 출력 수 |
+
+---
+
+### `mine`
+
+새로운 블록을 PoW(Proof-of-Work)로 채굴합니다. 코인베이스 트랜잭션을 포함한 블록을 생성하고 블록체인에 저장합니다.
+
+```
+bitcoin-edu mine [--address <ADDRESS>]
+```
+
+| 옵션 | 필수 | 설명 |
+|------|------|------|
+| `--address` / `-a` | 선택 | 블록 보상을 받을 주소 (생략 시 기본 주소 사용) |
+
+**출력 예시**:
+```
+Mining block 1...
+  Found nonce 42381 in 42382 attempts (1823.4 KH/s)
+Block mined successfully!
+  Height:  1
+  Hash:    00a3f7c2d1e8b4...
+  Reward:  5000000000 satoshis (50.0 BTC) -> a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+```
+
+**내부 동작**:
+1. 현재 체인 팁(tip)과 높이를 조회
+2. 보상 주소의 P2PKH scriptPubKey 생성
+3. 블록 보상 50 BTC의 코인베이스 트랜잭션 생성
+4. 머클 루트 계산 후 BlockHeader 구성 (bits: `0x20ffffff`, 교육용 쉬운 난이도)
+5. PoW 마이닝: nonce 0부터 순차 탐색하여 목표 해시 충족 nonce 발견
+6. 블록을 BlockchainDB에 저장 (block hash 인덱스, height 인덱스, tip 업데이트)
+7. 코인베이스 출력을 UTXO 세트에 등록
+8. DB flush (영속성 보장)
+
+**에러 케이스**:
+```
+Error: Blockchain not initialized. Run 'init' first.
+```
+→ `init`을 먼저 실행하세요.
+
+```
+Error: No default address. Create one with 'wallet new-address'
+```
+→ `--address`를 지정하거나 먼저 지갑 주소를 생성하세요.
 
 ---
 
@@ -333,65 +380,99 @@ Balance for a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2:
 
 ---
 
-### Flow 2: 코인 전송
+### Flow 2: 채굴 및 잔액 확인
 
-두 주소 간에 코인을 전송하는 흐름입니다.
-
-> **전제 조건**: Flow 1 완료, 그리고 송신자 주소에 UTXO가 있어야 합니다.
-> (현재 CLI에는 마이닝 명령이 없으므로, 코인을 얻으려면 코드 레벨에서 직접 UTXO를 추가하거나 examples/demo.rs를 활용하세요.)
+지갑 주소를 만든 뒤 블록을 채굴하여 보상을 받는 흐름입니다.
 
 ```bash
-# 1. 송신자 주소 확인 (기본 주소)
-$ ./target/release/bit-coin wallet list
-Addresses (1):
-  a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+# 1. 지갑 주소 생성 (채굴 보상을 받을 주소)
+$ ./target/release/bit-coin wallet new-address
+New address: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 
-# 2. 수신자 주소 생성
+# 2. 첫 번째 블록 채굴 (기본 주소로 보상)
+$ ./target/release/bit-coin mine
+Mining block 1...
+  Found nonce 42381 in 42382 attempts (1823.4 KH/s)
+Block mined successfully!
+  Height:  1
+  Hash:    00a3f7c2d1e8b4...
+  Reward:  5000000000 satoshis (50.0 BTC) -> a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+
+# 3. 잔액 확인 (50 BTC 증가)
+$ ./target/release/bit-coin wallet balance
+Balance for a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2:
+  5000000000 satoshis (50.00000000 BTC)
+
+# 4. 특정 주소로 보상을 보내면서 채굴
+$ ./target/release/bit-coin mine --address 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
+Mining block 2...
+  Found nonce 11203 in 11204 attempts (2104.1 KH/s)
+Block mined successfully!
+  Height:  2
+  Hash:    003a1c9e...
+  Reward:  5000000000 satoshis (50.0 BTC) -> 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
+
+# 5. 블록체인 상태 확인
+$ ./target/release/bit-coin info
+Blockchain Info:
+  Height: 3
+  Best block: 003a1c9e...
+  UTXO count: 3
+```
+
+---
+
+### Flow 3: 코인 전송
+
+채굴로 얻은 코인을 다른 주소로 전송하는 흐름입니다.
+
+```bash
+# 1. 수신자 주소 생성
 $ ./target/release/bit-coin wallet new-address
 New address: 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
 
-# 3. 송신자 잔액 확인
-$ ./target/release/bit-coin wallet balance a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+# 2. 송신자 잔액 확인
+$ ./target/release/bit-coin wallet balance
 Balance for a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2:
-  100000 satoshis (0.00100000 BTC)
+  5000000000 satoshis (50.00000000 BTC)
 
-# 4. 코인 전송 (기본 수수료: 1000 satoshi)
-$ ./target/release/bit-coin wallet send 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e 50000
+# 3. 코인 전송 (기본 수수료: 1000 satoshi)
+$ ./target/release/bit-coin wallet send 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e 100000000
 Transaction created:
   TXID: 3a4b5c6d7e8f3a4b5c6d7e8f3a4b5c6d7e8f3a4b5c6d7e8f3a4b5c6d7e8f3a4b
   Inputs: 1
   Outputs: 2
-  Total output: 99000 satoshis
+  Total output: 4999999000 satoshis
 
-# 5. 수수료를 직접 지정하는 경우
-$ ./target/release/bit-coin wallet send 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e 50000 --fee 2000
+# 4. 수수료를 직접 지정하는 경우
+$ ./target/release/bit-coin wallet send 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e 100000000 --fee 5000
 
 # 트랜잭션 구조:
-#   Input:  a1b2... 주소의 UTXO 100000 satoshi
-#   Output[0]: 9f8e... 주소로  50000 satoshi (수신자)
-#   Output[1]: a1b2... 주소로  49000 satoshi (잔돈: 100000 - 50000 - 1000)
+#   Input:  a1b2... 주소의 UTXO 5,000,000,000 satoshi
+#   Output[0]: 9f8e... 주소로  100,000,000 satoshi (수신자)
+#   Output[1]: a1b2... 주소로 4,899,999,000 satoshi (잔돈)
 ```
 
 **전송 금액 계산 다이어그램**:
 
 ```
-UTXO (100,000 sat)
+UTXO (5,000,000,000 sat)
        │
        ▼
-  ┌─────────────────────────────────┐
-  │          Transaction            │
-  │  Input:  100,000 sat            │
-  │  Output[0] → 수신자: 50,000 sat │
-  │  Output[1] → 잔돈:   49,000 sat │
-  │  Fee:                 1,000 sat │
-  └─────────────────────────────────┘
+  ┌──────────────────────────────────────────┐
+  │              Transaction                 │
+  │  Input:  5,000,000,000 sat               │
+  │  Output[0] → 수신자:   100,000,000 sat   │
+  │  Output[1] → 잔돈:   4,899,999,000 sat   │
+  │  Fee:                        1,000 sat   │
+  └──────────────────────────────────────────┘
 ```
 
 ---
 
-### Flow 3: 블록체인 탐색
+### Flow 4: 블록체인 탐색
 
-블록 정보를 조회하는 흐름입니다.
+채굴된 블록들을 탐색하는 흐름입니다.
 
 ```bash
 # 1. 현재 체인 높이 확인
@@ -466,6 +547,7 @@ Blockchain Info:
 
 | 에러 메시지 | 원인 | 해결 방법 |
 |------------|------|----------|
+| `Blockchain not initialized. Run 'init' first.` | init 미실행 | `init` 먼저 실행 |
 | `No default address. Create one with 'wallet new-address'` | 지갑 주소 없음 | `wallet new-address` 실행 |
 | `Insufficient funds: have X, need Y` | UTXO 잔액 부족 | 전송 금액 또는 수수료를 줄이거나 잔액을 충전 |
 | `No UTXOs available for sender` | 해당 주소에 UTXO 없음 | 코인이 있는 주소를 사용하거나 잔액 충전 |
