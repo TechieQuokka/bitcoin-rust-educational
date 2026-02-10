@@ -12,8 +12,12 @@ use std::time::Instant;
 
 /// Number of threads per workgroup (must match @workgroup_size in WGSL)
 const WORKGROUP_SIZE: u32 = 256;
-/// Number of workgroups dispatched per batch → 256 * 4096 = 1,048,576 nonces
-const GROUPS_PER_DISPATCH: u32 = 4096;
+/// X-dimension workgroups (wgpu max per dimension = 65535)
+const GROUPS_X: u32 = 65535;
+/// Y-dimension rows per dispatch — each row covers GROUPS_X * WORKGROUP_SIZE nonces.
+/// 16 rows → 65535 × 256 × 16 ≈ 268 M nonces per GPU round-trip.
+/// Raise this to push GPU utilisation higher (keep GPU time well under 2 s TDR limit).
+const GROUPS_Y: u32 = 16;
 
 // ── GPU buffer layouts ──────────────────────────────────────────────────────
 
@@ -231,7 +235,10 @@ fn sha256d(nonce_le: u32) -> array<u32, 8> {
 
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
-    let nonce = params.start_nonce + gid.x;
+    // 2-D dispatch: gid.y selects the row, gid.x the column within that row.
+    // Each row covers GROUPS_X * WORKGROUP_SIZE = 65535 * 256 = 16,776,960 nonces.
+    let row_stride : u32 = 65535u * 256u;  // must match GROUPS_X * WORKGROUP_SIZE in Rust
+    let nonce = params.start_nonce + gid.y * row_stride + gid.x;
     var hash  = sha256d(nonce);
 
     // Copy storage target into a var local for dynamic indexing
@@ -436,16 +443,16 @@ impl GpuMiner {
         });
 
         // ── Mining loop ───────────────────────────────────────────────────────
-        let nonces_per_dispatch = WORKGROUP_SIZE * GROUPS_PER_DISPATCH; // 1,048,576
+        // 2-D dispatch: X covers one row of GROUPS_X workgroups, Y adds GROUPS_Y rows.
+        let nonces_per_dispatch: u64 = WORKGROUP_SIZE as u64 * GROUPS_X as u64 * GROUPS_Y as u64;
         let start_time = Instant::now();
         let mut total_attempts: u64 = 0;
         let mut start_nonce: u32 = 0;
 
         log::info!(
-            "GPU dispatch: {} workgroups × {} threads = {} nonces/batch",
-            GROUPS_PER_DISPATCH,
-            WORKGROUP_SIZE,
-            nonces_per_dispatch
+            "GPU dispatch: {}x{}x{} threads = {} M nonces/batch",
+            GROUPS_X, GROUPS_Y, WORKGROUP_SIZE,
+            nonces_per_dispatch / 1_000_000
         );
 
         loop {
@@ -475,7 +482,7 @@ impl GpuMiner {
                     });
                 pass.set_pipeline(&pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.dispatch_workgroups(GROUPS_PER_DISPATCH, 1, 1);
+                pass.dispatch_workgroups(GROUPS_X, GROUPS_Y, 1);
             }
             encoder.copy_buffer_to_buffer(
                 &result_buf,
@@ -503,7 +510,7 @@ impl GpuMiner {
             };
             staging_buf.unmap();
 
-            total_attempts += nonces_per_dispatch as u64;
+            total_attempts += nonces_per_dispatch;
 
             if gpu_result.found != 0 {
                 // CPU-side verification: set nonce and re-hash
@@ -551,9 +558,10 @@ impl GpuMiner {
             }
 
             // Advance to next batch, detect u32 overflow (all nonces exhausted)
-            start_nonce = match start_nonce.checked_add(nonces_per_dispatch) {
-                Some(n) => n,
-                None => {
+            let next_nonce = start_nonce as u64 + nonces_per_dispatch;
+            start_nonce = match u32::try_from(next_nonce) {
+                Ok(n) => n,
+                Err(_) => {
                     let elapsed = start_time.elapsed();
                     return Ok(MiningResult {
                         success: false,

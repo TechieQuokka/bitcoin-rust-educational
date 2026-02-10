@@ -36,6 +36,9 @@ pub enum Commands {
         /// Use GPU (wgpu compute shader) for mining; falls back to CPU if no GPU is found
         #[arg(long, default_value = "false")]
         gpu: bool,
+        /// Number of blocks to mine (default: 1, use 0 for unlimited)
+        #[arg(short, long, default_value = "1")]
+        count: u32,
     },
 
     /// Block commands
@@ -123,7 +126,7 @@ impl CliHandler {
         match cli.command {
             Commands::Init => self.init(),
             Commands::Info => self.info(),
-            Commands::Mine { address, gpu } => self.mine(address, gpu),
+            Commands::Mine { address, gpu, count } => self.mine(address, gpu, count),
             Commands::Wallet(cmd) => self.handle_wallet(cmd),
             Commands::Block(cmd) => self.handle_block(cmd),
         }
@@ -173,9 +176,9 @@ impl CliHandler {
         Ok(())
     }
 
-    /// Mine a new block
-    fn mine(&mut self, address: Option<String>, use_gpu: bool) -> Result<(), String> {
-        // Resolve the reward address
+    /// Mine blocks (count=0 means unlimited)
+    fn mine(&mut self, address: Option<String>, use_gpu: bool, count: u32) -> Result<(), String> {
+        // Resolve the reward address once
         let reward_addr = match address {
             Some(a) => crate::wallet::Address(a),
             None => self
@@ -185,86 +188,96 @@ impl CliHandler {
                 .clone(),
         };
 
-        // Build the P2PKH scriptPubKey for the reward address
-        let pubkey_hash = reward_addr.to_pubkey_hash()?;
-        let reward_script = crate::core::Script::p2pkh_script_pubkey(&pubkey_hash);
-
-        // Determine the current chain tip and height
-        let prev_hash = self
-            .storage
-            .blockchain
-            .get_tip()?
-            .ok_or("Blockchain not initialized. Run 'init' first.")?;
-        let current_height = self.storage.blockchain.get_chain_height()?;
-        let new_height = current_height; // height == number of blocks already stored
-
-        // Block reward: 50 BTC (fixed for educational purposes)
-        const BLOCK_REWARD: u64 = 50 * 100_000_000;
-
-        // Create coinbase transaction
-        let coinbase_script = format!("Block {}", new_height).into_bytes();
-        let coinbase_output = TxOutput::new(BLOCK_REWARD, reward_script);
-        let coinbase_tx = Transaction::coinbase(coinbase_script, coinbase_output, new_height);
-
-        // Build the block header (nonce=0, will be updated by miner)
-        let merkle_root = Block::calculate_merkle_root(&[coinbase_tx.clone()]);
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| format!("System time error: {}", e))?
-            .as_secs() as u32;
-
-        // Use the same difficulty as genesis (0x20ffffff - very easy for education)
         let bits: u32 = 0x20ffffff;
-        let mut header = BlockHeader::new(1, prev_hash, merkle_root, timestamp, bits, 0);
+        const BLOCK_REWARD: u64 = 50 * 100_000_000;
+        let unlimited = count == 0;
+        let mut mined = 0u32;
 
-        // Run Proof-of-Work (CPU or GPU)
-        if use_gpu {
-            println!("Mining block {} on GPU...", new_height);
-        } else {
-            println!("Mining block {} on CPU...", new_height);
+        // Pre-create miner (GPU miner initialises wgpu once and reuses)
+        let mode = if use_gpu { "GPU" } else { "CPU" };
+
+        loop {
+            if !unlimited && mined >= count {
+                break;
+            }
+
+            // Build the P2PKH scriptPubKey for the reward address
+            let pubkey_hash = reward_addr.to_pubkey_hash()?;
+            let reward_script = crate::core::Script::p2pkh_script_pubkey(&pubkey_hash);
+
+            // Determine the current chain tip and height
+            let prev_hash = self
+                .storage
+                .blockchain
+                .get_tip()?
+                .ok_or("Blockchain not initialized. Run 'init' first.")?;
+            let current_height = self.storage.blockchain.get_chain_height()?;
+            let new_height = current_height;
+
+            // Create coinbase transaction
+            let coinbase_script = format!("Block {}", new_height).into_bytes();
+            let coinbase_output = TxOutput::new(BLOCK_REWARD, reward_script);
+            let coinbase_tx = Transaction::coinbase(coinbase_script, coinbase_output, new_height);
+
+            // Build block header
+            let merkle_root = Block::calculate_merkle_root(&[coinbase_tx.clone()]);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| format!("System time error: {}", e))?
+                .as_secs() as u32;
+            let mut header = BlockHeader::new(1, prev_hash, merkle_root, timestamp, bits, 0);
+
+            println!("Mining block {} on {}...", new_height, mode);
+
+            let result = if use_gpu {
+                let gpu_miner = GpuMiner::new(bits);
+                gpu_miner.mine(&mut header)
+            } else {
+                let cpu_miner = Miner::new(bits);
+                cpu_miner.mine(&mut header)
+            };
+
+            if !result.success {
+                return Err(format!("Mining failed at height {}: could not find valid nonce", new_height));
+            }
+
+            println!(
+                "  Found nonce {} in {} attempts ({:.1} KH/s)",
+                result.nonce,
+                result.attempts,
+                result.hash_rate() / 1000.0
+            );
+
+            // Assemble and store the block
+            let block = Block::new(header, vec![coinbase_tx.clone()]);
+            let block_hash = block.hash();
+
+            self.storage.blockchain.store_block(&block)?;
+            self.storage.blockchain.store_height(new_height, &block_hash)?;
+            self.storage.blockchain.store_tip(&block_hash)?;
+            self.storage.blockchain.store_chain_height(new_height + 1)?;
+
+            // Register the coinbase output in the UTXO set
+            let outpoint = OutPoint::new(coinbase_tx.txid(), 0);
+            let utxo = Utxo::new(coinbase_tx.outputs[0].clone(), new_height, true);
+            self.storage.utxo_set.add_utxo(&outpoint, &utxo)?;
+
+            // Flush both databases
+            self.storage.blockchain.flush()?;
+            self.storage.utxo_set.flush()?;
+
+            println!("Block mined successfully!");
+            println!("  Height:  {}", new_height);
+            println!("  Hash:    {}", block_hash);
+            println!("  Reward:  {} satoshis ({} BTC) -> {}", BLOCK_REWARD, BLOCK_REWARD as f64 / 1e8, reward_addr);
+            println!();
+
+            mined += 1;
         }
 
-        let result = if use_gpu {
-            let gpu_miner = GpuMiner::new(bits);
-            gpu_miner.mine(&mut header)
-        } else {
-            let cpu_miner = Miner::new(bits);
-            cpu_miner.mine(&mut header)
-        };
-
-        if !result.success {
-            return Err("Mining failed: could not find valid nonce".to_string());
+        if count != 1 || unlimited {
+            println!("Total blocks mined: {}", mined);
         }
-
-        println!(
-            "  Found nonce {} in {} attempts ({:.1} KH/s)",
-            result.nonce,
-            result.attempts,
-            result.hash_rate() / 1000.0
-        );
-
-        // Assemble and store the block
-        let block = Block::new(header, vec![coinbase_tx.clone()]);
-        let block_hash = block.hash();
-
-        self.storage.blockchain.store_block(&block)?;
-        self.storage.blockchain.store_height(new_height, &block_hash)?;
-        self.storage.blockchain.store_tip(&block_hash)?;
-        self.storage.blockchain.store_chain_height(new_height + 1)?;
-
-        // Register the coinbase output in the UTXO set
-        let outpoint = OutPoint::new(coinbase_tx.txid(), 0);
-        let utxo = Utxo::new(coinbase_tx.outputs[0].clone(), new_height, true);
-        self.storage.utxo_set.add_utxo(&outpoint, &utxo)?;
-
-        // Flush both databases to ensure durability
-        self.storage.blockchain.flush()?;
-        self.storage.utxo_set.flush()?;
-
-        println!("Block mined successfully!");
-        println!("  Height:  {}", new_height);
-        println!("  Hash:    {}", block_hash);
-        println!("  Reward:  {} satoshis ({} BTC) -> {}", BLOCK_REWARD, BLOCK_REWARD as f64 / 1e8, reward_addr);
 
         Ok(())
     }
