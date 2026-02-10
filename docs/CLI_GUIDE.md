@@ -106,17 +106,28 @@ Blockchain Info:
 새로운 블록을 PoW(Proof-of-Work)로 채굴합니다. 코인베이스 트랜잭션을 포함한 블록을 생성하고 블록체인에 저장합니다.
 
 ```
-bitcoin-edu mine [--address <ADDRESS>]
+bitcoin-edu mine [--address <ADDRESS>] [--gpu]
 ```
 
 | 옵션 | 필수 | 설명 |
 |------|------|------|
 | `--address` / `-a` | 선택 | 블록 보상을 받을 주소 (생략 시 기본 주소 사용) |
+| `--gpu` | 선택 | GPU(wgpu 컴퓨트 셰이더)로 채굴. GPU 없으면 자동으로 CPU로 전환 |
 
-**출력 예시**:
+**출력 예시 (CPU)**:
 ```
-Mining block 1...
+Mining block 1 on CPU...
   Found nonce 42381 in 42382 attempts (1823.4 KH/s)
+Block mined successfully!
+  Height:  1
+  Hash:    00a3f7c2d1e8b4...
+  Reward:  5000000000 satoshis (50.0 BTC) -> a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+```
+
+**출력 예시 (GPU)**:
+```
+Mining block 1 on GPU...
+  Found nonce 42381 in 1048576 attempts (312000.0 KH/s)
 Block mined successfully!
   Height:  1
   Hash:    00a3f7c2d1e8b4...
@@ -128,10 +139,30 @@ Block mined successfully!
 2. 보상 주소의 P2PKH scriptPubKey 생성
 3. 블록 보상 50 BTC의 코인베이스 트랜잭션 생성
 4. 머클 루트 계산 후 BlockHeader 구성 (bits: `0x20ffffff`, 교육용 쉬운 난이도)
-5. PoW 마이닝: nonce 0부터 순차 탐색하여 목표 해시 충족 nonce 발견
+5. PoW 마이닝 (CPU 또는 GPU):
+   - **CPU**: nonce 0부터 순차 탐색
+   - **GPU**: 1회 디스패치마다 1,048,576개 nonce를 병렬 탐색 (256 threads × 4096 workgroups)
 6. 블록을 BlockchainDB에 저장 (block hash 인덱스, height 인덱스, tip 업데이트)
 7. 코인베이스 출력을 UTXO 세트에 등록
 8. DB flush (영속성 보장)
+
+**GPU 마이닝 아키텍처**:
+```
+CPU                          GPU (wgpu WGSL compute shader)
+ │                                │
+ ├─ header bytes 0-75 ──────────► │  각 스레드: nonce = start + thread_id
+ ├─ target (8 × u32 BE) ────────► │  SHA256d(header || nonce) 계산
+ ├─ start_nonce ────────────────► │  hash < target → result에 기록
+ │                                │
+ ◄─────── found nonce ────────────┤
+ │
+ └─ CPU에서 결과 검증 후 블록 저장
+```
+
+**GPU fallback**: GPU 드라이버가 없거나 초기화에 실패하면 자동으로 CPU 채굴로 전환됩니다.
+```
+WARN: GPU mining unavailable (...), falling back to CPU
+```
 
 **에러 케이스**:
 ```
@@ -403,8 +434,17 @@ $ ./target/release/bit-coin wallet balance
 Balance for a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2:
   5000000000 satoshis (50.00000000 BTC)
 
-# 4. 특정 주소로 보상을 보내면서 채굴
-$ ./target/release/bit-coin mine --address 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
+# 4. GPU로 채굴
+$ ./target/release/bit-coin mine --gpu
+Mining block 2 on GPU...
+  Found nonce 11203 in 1048576 attempts (412000.0 KH/s)
+Block mined successfully!
+  Height:  2
+  Hash:    003a1c9e...
+  Reward:  5000000000 satoshis (50.0 BTC) -> a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+
+# 5. 특정 주소로 보상을 보내면서 GPU 채굴
+$ ./target/release/bit-coin mine --gpu --address 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
 Mining block 2...
   Found nonce 11203 in 11204 attempts (2104.1 KH/s)
 Block mined successfully!
